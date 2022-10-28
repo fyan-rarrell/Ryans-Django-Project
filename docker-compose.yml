@@ -1,0 +1,28 @@
+version: "3.7"
+services:
+  api:
+    build: .
+    depends_on:
+      - postgres
+    image: app-name:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/opt/smarter-sorting/app-name
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DATABASE: db-name
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    command: python manage.py runserver 0.0.0.0:8000
+  postgres:
+    image: postgres:alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: db-name
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres

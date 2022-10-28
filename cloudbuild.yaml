@@ -1,0 +1,131 @@
+substitutions:
+  _PROJECT_NAME: app-name
+  _REPOSITORY: gcr.io/smartersorting-images
+
+steps:
+
+  - name: gcr.io/cloud-builders/docker
+    id: pull-latest
+    entrypoint: /bin/bash
+    args:
+      - -evc
+      - docker pull -q ${_REPOSITORY}/${_PROJECT_NAME}:latest || echo "Prior image not available for caching"
+
+  - name: gcr.io/cloud-builders/docker
+    id: build
+    entrypoint: /bin/bash
+    waitFor:
+      - pull-latest
+    args:
+      - -evc
+      - |
+        docker build --cache-from ${_REPOSITORY}/${_PROJECT_NAME}:latest \
+          -t ${_REPOSITORY}/${_PROJECT_NAME}:latest \
+          -t ${_REPOSITORY}/${_PROJECT_NAME}:sha-${SHORT_SHA} \
+          -t ${_PROJECT_NAME}:latest .
+
+  - name: 'us.gcr.io/ss-platform-staging/cloudsdk-codeclimate:updated-docker-compose'
+    id: setup-test-env
+    entrypoint: /bin/sh
+    waitFor:
+      - '-'
+    env:
+      - 'update_env'
+    args:
+      - -evc
+      - cc-test-reporter before-build
+
+  - name: 'us.gcr.io/ss-platform-staging/cloudsdk-codeclimate:updated-docker-compose'
+    id: run-tests
+    entrypoint: /bin/sh
+    env:
+      - 'COVERAGE_REPORT_ARGS=xml'
+      - 'COMPOSE_HOST_MOUNT_POINT=/workspace'
+    waitFor:
+      - setup-test-env
+      - build
+    args:
+      - -evc
+      - docker-compose -f docker-compose-test.yml run api-test
+
+  - name: 'us.gcr.io/ss-platform-staging/cloudsdk-codeclimate:updated-docker-compose'
+    id: send-coverage-report
+    entrypoint: /bin/sh
+    env:
+      - 'update_env'
+      - 'COVERAGE_FILE=/workspace/coverage.xml'
+    waitFor:
+      - run-tests
+    args:
+      - -evc
+      - cc-test-reporter after-build -p /opt/smarter-sorting/app-name/
+
+  - name: 'gcr.io/cloud-builders/docker'
+    id: push-images
+    entrypoint: /bin/bash
+    waitFor:
+      - run-tests
+    args:
+      - -evc
+      - |
+        docker push ${_REPOSITORY}/${_PROJECT_NAME}:sha-${SHORT_SHA}
+        docker push ${_REPOSITORY}/${_PROJECT_NAME}:latest
+  - name: gcr.io/cloud-builders/gcloud
+    id: cluster-credentials
+    waitFor:
+      - '-'
+    entrypoint: /bin/bash
+    args:
+      - -evc
+      - |
+        [ -z "$_DEPLOY_CLUSTER" ] && echo "Skipping Deployment" && exit 0
+        gcloud container clusters get-credentials --region=$_REGION $_DEPLOY_CLUSTER
+  - name: us.gcr.io/ss-platform-staging/gcloud-sops
+    id: deploy-decrypt-env
+    entrypoint: bash
+    waitFor:
+      - '-'
+    args:
+      - -evc
+      - |
+        set -o pipefail
+        [ -z "$_DEPLOY_CLUSTER" ] && echo "Skipping Deployment" && exit 0
+        sops -d helm/secrets-${_ENV}.enc.yaml > .secret.${_ENV}
+  - name: gcr.io/cloud-builders/kubectl
+    id: deploy-prepare-env
+    waitFor:
+      - deploy-decrypt-env
+      - push-images
+    entrypoint: /bin/bash
+    args:
+      - -evc
+      - |
+        set -o pipefail
+        [ -z "$_DEPLOY_CLUSTER" ] && echo "Skipping Deployment" && exit 0
+        kubectl create ns ${_PROJECT_NAME}${_NAMESPACE_SUFFIX} || true
+  - name: 'gcr.io/ssftp-220720/helm'
+    id: deploy
+    waitFor:
+      - push-images
+    args:
+      - "upgrade"
+      - "--install"
+      - "${_PROJECT_NAME}"
+      - "--namespace"
+      - "${_PROJECT_NAME}"
+      - "-f"
+      - "helm/values-${_ENV}.yaml"
+      - "-f"
+      - ".secret.${_ENV}"
+      - "--set"
+      - "env=${_ENV}"
+      - "--set"
+      - "appVersion=sha-${SHORT_SHA}"
+      - "--set"
+      - "tag=sha-${SHORT_SHA}"
+      - "smarter-sorting/webservice"
+    env:
+      - 'HELM_REPO_NAME=smarter-sorting'
+      - 'HELM_REPO_URL=gs://ss-helm-charts'
+      - 'GCS_PLUGIN_VERSION=0.3.20'
+      

@@ -1,0 +1,32 @@
+version: "3.7"
+services:
+  api-test:
+    build: .
+    depends_on:
+      - postgres-test
+    image: app-name:latest
+    container_name: app-name-test
+    ports:
+      - "8000:8000"
+    volumes:
+        - "${COMPOSE_HOST_MOUNT_POINT:-.}:/app-name"
+    environment:
+      POSTGRES_HOST: postgres-test
+      POSTGRES_DATABASE: db-name
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+    command: >
+      bash -c "python -m coverage run -m pytest &&
+      python -m coverage xml -o /app-name/coverage.xml"
+  postgres-test:
+    image: postgres:alpine
+    container_name: postgres-test-container
+    pull_policy: build
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: db-name
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      

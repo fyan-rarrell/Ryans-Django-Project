@@ -1,0 +1,35 @@
+image: gcr.io/smartersorting-images/app-name
+command: ["ddtrace-run"]
+args: ["gunicorn", "-b", "0.0.0.0:5000", "--timeout", "60", "config.wsgi:application"]
+#envVars:
+#  - name: RAILS_ENV
+#    value: staging
+targetPort: 5000
+resources:
+  requests:
+    memory: 1000M
+    cpu: 500m
+  limits:
+    memory: 2000M
+    cpu: 1000m
+readinessProbe:
+  path: "/health/"
+  port: 5000
+livenessProbe:
+  path: "/health/"
+  port: 5000
+ingress:
+  subdomain: update_subdomain
+configMapEnv:
+  - name: app-name
+    data:
+      foo: bar
+migration:
+  enabled: true
+  command:
+    - python
+  args:
+    - manage.py
+    - migrate
+annotations:
+  "ad.datadoghq.com/app-name.logs": "[{\"source\":\"gunicorn\",\"service\":\"app-name\"}]"
