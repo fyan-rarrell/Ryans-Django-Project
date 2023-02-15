@@ -5,7 +5,7 @@ name = "pypi"
 
 [packages]
 psycopg2 = "==2.9.3"
-Django = "==4.0.8"
+Django = "==4.1.7"
 django-reversion = "==5.0.0"
 pydash = "==5.1.0"
 django-cors-headers = "==3.12.0"
